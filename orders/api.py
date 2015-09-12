@@ -5,6 +5,7 @@ from dateutil.tz import tzutc
 from flask import Flask, url_for, jsonify, request
 from flask.ext.sqlalchemy import SQLAlchemy
 from utils import split_url
+import requests
 
 
 basedir = os.path.abspath(os.path.dirname(__file__))
@@ -18,6 +19,44 @@ db = SQLAlchemy(app)
 
 class ValidationError(ValueError):
     pass
+
+@app.errorhandler(301)
+def redirect(e):
+    response = jsonify({
+        'status': 301,
+        'error': 'You forgot the trailing slash, correct url in message.',
+        'message': e.args[0]
+    })
+    response.status_code = 301
+    return response
+
+@app.errorhandler(ValidationError)
+def bad_request(e):
+    response = jsonify({'status': 400, 'error': 'bad request',
+                        'message': e.args[0]})
+    response.status_code = 400
+    return response
+
+@app.errorhandler(404)
+def not_found(e):
+    response = jsonify({'status': 404, 'error': 'not found',
+                       'message': 'invalid resource URI'})
+    response.status_code = 404
+    return response
+
+@app.errorhandler(405)
+def method_not_supported(e):
+    response = jsonify({'status': 405, 'error': 'method_not_supported',
+                        'message': 'the method is not supported'})
+    response.status_code = 405
+    return response
+
+@app.errorhandler(500)
+def internal_server_error(e):
+    response = jsonify({'status': 500, 'error': 'internal server error',
+                        'message': e.args[0]})
+    response.status_code = 500
+    return response
 
 
 class Customer(db.Model):
@@ -132,8 +171,8 @@ class Item(db.Model):
                                   data['product_url'])
         return self
 
-
 @app.route('/customers/', methods=['GET'])
+@app.route('/customers', methods=['GET'])
 def get_customers():
     return jsonify({'customers': [customer.get_url() for customer in
                                   Customer.query.all()]})
