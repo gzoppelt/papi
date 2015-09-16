@@ -2,11 +2,12 @@ import os
 from datetime import datetime
 from dateutil import parser as datetime_parser
 from dateutil.tz import tzutc
-from flask import Flask, url_for, jsonify, request
+from werkzeug.security import generate_password_hash, check_password_hash
+from flask import Flask, url_for, jsonify, request, g
 from flask.ext.sqlalchemy import SQLAlchemy
+from flask.ext.httpauth import HTTPBasicAuth
 from utils import split_url
 import requests
-
 
 basedir = os.path.abspath(os.path.dirname(__file__))
 db_path = os.path.join(basedir, '../data.sqlite')
@@ -15,7 +16,7 @@ app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + db_path
 
 db = SQLAlchemy(app)
-
+auth = HTTPBasicAuth()
 
 class ValidationError(ValueError):
     pass
@@ -57,6 +58,19 @@ def internal_server_error(e):
                         'message': e.args[0]})
     response.status_code = 500
     return response
+
+
+class User(db.Model):
+    __tablename__ = 'users'
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(64), index=True)
+    password_hash = db.Column(db.String(128))
+
+    def set_password(self, password):
+        self.password_hash = generate_password_hash(password)
+
+    def verify_password(self, password):
+        return check_password_hash(self.password_hash, password)
 
 
 class Customer(db.Model):
@@ -170,6 +184,27 @@ class Item(db.Model):
             raise ValidationError('Invalid product URL: '+
                                   data['product_url'])
         return self
+
+
+@auth.verify_password
+def verify_password(username, password):
+    g.user = User.query.filter_by(username=username).first()
+    if g.user is None:
+        return False
+    return g.user.verify_password(password)
+
+@app.before_request
+@auth.login_required
+def before_request():
+    pass
+
+@auth.error_handler
+def unauthorized():
+    response = jsonify({'status': 401, 'error': 'unauthorized',
+                       'message': 'please authenticate'})
+    response.status_code = 401
+    return response
+
 
 @app.route('/customers/', methods=['GET'])
 @app.route('/customers', methods=['GET'])
